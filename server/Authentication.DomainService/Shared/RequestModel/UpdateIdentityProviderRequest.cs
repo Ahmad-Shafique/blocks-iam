@@ -29,5 +29,8 @@ namespace Authentication.DomainService.Shared.RequestModel
         public string? KeyId { get; set; }
         public string? PrivateKey { get; set; }
         public string? AppleAudience { get; set; }
+
+        /// <summary>Sets the provider's email-trust flag for account linking. Null keeps what is stored.</summary>
+        public bool? TrustEmail { get; set; }
     }
 }

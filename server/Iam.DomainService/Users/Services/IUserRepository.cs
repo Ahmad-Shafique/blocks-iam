@@ -17,6 +17,18 @@ namespace Iam.DomainService.Users
         Task<bool> UpdateUserAsync(User user);
 
         /// <summary>
+        /// The user whose <see cref="User.ExternalIdentities"/> holds this (issuer, provider user id) pair, compared
+        /// exactly, or null. Blank values never match.
+        /// </summary>
+        Task<User?> GetUserByExternalIdentityAsync(string issuer, string providerUserId);
+
+        /// <summary>
+        /// Appends <paramref name="identity"/> to the user's external identities unless the same (issuer, provider user
+        /// id) pair is already there. A targeted update, so nothing else on the user is rewritten. True when written.
+        /// </summary>
+        Task<bool> AddExternalIdentityAsync(string userId, ExternalIdentity identity);
+
+        /// <summary>
         /// Atomically records one successful login. See
         /// <see cref="Iam.DomainService.Services.IIdentityAccessManagementRepository.RecordSuccessfulLoginAsync"/>.
         /// </summary>

@@ -419,6 +419,9 @@ namespace Authentication.DomainService.Services
             provider.LastUpdatedDate = DateTime.UtcNow;
             provider.LastUpdatedBy = BlocksContext.GetContext()?.UserId ?? "system";
 
+            // Every create path ends here, so a new provider can never be stored without the flag (I06-WP1).
+            IdentityProviderEmailTrust.StampNewProviderDefault(provider);
+
             var collection = GetCollection<IdentityProvider>();
             await _dataAccess.InsertOneAsync(collection, IamSchemas.IdentityProvider, provider, "AuthenticationRepository.CreateIdentityProviderAsync");
             return provider;

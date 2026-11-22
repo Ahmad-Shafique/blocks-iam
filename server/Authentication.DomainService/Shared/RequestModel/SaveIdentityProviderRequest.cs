@@ -28,5 +28,11 @@ namespace Authentication.DomainService.Shared.RequestModel
         public string? KeyId { get; set; }
         public string? PrivateKey { get; set; }
         public string? AppleAudience { get; set; }
+
+        /// <summary>
+        /// May a sign-in from this provider be linked to an existing account by email alone? Null means false for a new
+        /// provider; only a linked external identity then signs an existing account in.
+        /// </summary>
+        public bool? TrustEmail { get; set; }
     }
 }

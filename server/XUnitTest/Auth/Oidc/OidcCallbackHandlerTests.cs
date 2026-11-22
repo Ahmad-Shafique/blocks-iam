@@ -72,7 +72,7 @@ namespace XUnitTest.Auth.Oidc
                 });
 
             provisioning
-                .Setup(p => p.ResolveOrProvisionAsync(It.IsAny<IExternalUserData>(), It.IsAny<string>()))
+                .Setup(p => p.ResolveOrProvisionAsync(It.IsAny<IExternalUserData>(), It.IsAny<string>(), It.IsAny<IdentityProvider?>()))
                 .ReturnsAsync(provisioningResult);
 
             return handler;
@@ -173,7 +173,7 @@ namespace XUnitTest.Auth.Oidc
             result.ClientId.Should().Be("client-1");
             policy.Checks.Should().Equal((LoginChannel.Oidc, LoginMethods.Social));
             social.Verify(s => s.HandleSocialLoginCallback(It.IsAny<StateInfo>()), Times.Never);
-            provisioning.Verify(p => p.ResolveOrProvisionAsync(It.IsAny<IExternalUserData>(), It.IsAny<string>()), Times.Never);
+            provisioning.Verify(p => p.ResolveOrProvisionAsync(It.IsAny<IExternalUserData>(), It.IsAny<string>(), It.IsAny<IdentityProvider?>()), Times.Never);
         }
 
         [Fact]
@@ -232,7 +232,7 @@ namespace XUnitTest.Auth.Oidc
             social.Setup(s => s.HandleSocialLoginCallback(It.IsAny<StateInfo>()))
                 .Callback<StateInfo>(s => sent = s)
                 .ReturnsAsync(new SocialCallbackResult { ExternalUserData = new BYOSsoUserData { Email = "u@example.com" } });
-            provisioning.Setup(p => p.ResolveOrProvisionAsync(It.IsAny<IExternalUserData>(), It.IsAny<string>()))
+            provisioning.Setup(p => p.ResolveOrProvisionAsync(It.IsAny<IExternalUserData>(), It.IsAny<string>(), It.IsAny<IdentityProvider?>()))
                 .ReturnsAsync(SsoProvisioningResult.From(SsoProvisioningOutcome.ExistingUser, new User { ItemId = "u1", Active = true }));
 
             await handler.HandleCallbackAsync("code-1", "state-1");
@@ -254,7 +254,7 @@ namespace XUnitTest.Auth.Oidc
             result.IsSuccess.Should().BeTrue();
             result.BlocksUserId.Should().Be("new-user");
             provisioning.Verify(
-                p => p.ResolveOrProvisionAsync(It.IsAny<IExternalUserData>(), "google"),
+                p => p.ResolveOrProvisionAsync(It.IsAny<IExternalUserData>(), "google", It.IsAny<IdentityProvider?>()),
                 Times.Once);
         }
 
