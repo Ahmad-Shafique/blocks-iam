@@ -62,7 +62,12 @@ namespace Authentication.DomainService.OAuth
         {
             ArgumentNullException.ThrowIfNull(stateInfo);
 
-            var result = await _ssoUserProvisioningService.ResolveOrProvisionAsync(externalUser, stateInfo.Provider);
+            // The provider supplies the issuer for identity linking and its TrustEmail flag (I06-WP1).
+            var identityProvider = string.IsNullOrWhiteSpace(stateInfo.ClientId)
+                ? null
+                : await _oAuthRepository.GetIdentityProviderByClientIdAsync(stateInfo.ClientId);
+
+            var result = await _ssoUserProvisioningService.ResolveOrProvisionAsync(externalUser, stateInfo.Provider, identityProvider);
 
             if (result.Outcome == SsoProvisioningOutcome.OrganizationUnavailable)
             {

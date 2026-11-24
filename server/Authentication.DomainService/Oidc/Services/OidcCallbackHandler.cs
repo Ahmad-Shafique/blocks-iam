@@ -307,7 +307,16 @@ namespace Authentication.DomainService.Oidc.Services
                 // 5. Resolve the Blocks user behind the external identity, provisioning one when
                 // the tenant allows SSO signup. Shared with /social/callback so the two callbacks
                 // cannot drift apart again.
-                var provisioning = await _ssoUserProvisioningService.ResolveOrProvisionAsync(externalUserData, provider);
+                var provisioning = await _ssoUserProvisioningService.ResolveOrProvisionAsync(externalUserData, provider, identityProvider);
+
+                if (provisioning.Outcome == SsoProvisioningOutcome.IdentityNotLinked)
+                {
+                    _logger.LogWarning("Sign-in from {Provider} refused: the external identity is not linked to the account with this email", provider);
+                    return Failure(
+                        "identity_not_linked",
+                        // Deliberately does not say that an account exists: the email is not trusted from this provider.
+                        "This sign-in is not linked to an account. Sign in another way, or contact your administrator.");
+                }
 
                 if (provisioning.Outcome == SsoProvisioningOutcome.SignupDisabled)
                 {

@@ -259,7 +259,7 @@ namespace XUnitTest.Auth.OAuth
             _provisioning.Object);
 
         private void ProvisioningAnswers(SsoProvisioningResult result) =>
-            _provisioning.Setup(p => p.ResolveOrProvisionAsync(It.IsAny<IExternalUserData>(), "google")).ReturnsAsync(result);
+            _provisioning.Setup(p => p.ResolveOrProvisionAsync(It.IsAny<IExternalUserData>(), "google", It.IsAny<IdentityProvider?>())).ReturnsAsync(result);
 
         [Fact]
         public async Task C9_SocialGrant_TargetUnavailable_Returns400SignupOrganizationUnavailable_NotUserNotFound()
@@ -328,7 +328,7 @@ namespace XUnitTest.Auth.OAuth
 
             resolved.Should().BeSameAs(user);
             redirect.Should().BeEmpty();
-            _provisioning.Verify(p => p.ResolveOrProvisionAsync(It.IsAny<IExternalUserData>(), "google"), Times.Once);
+            _provisioning.Verify(p => p.ResolveOrProvisionAsync(It.IsAny<IExternalUserData>(), "google", It.IsAny<IdentityProvider?>()), Times.Once);
         }
     }
 }

@@ -321,6 +321,66 @@ namespace Iam.DomainService.Users
             return await _identityAccessManagementRepository.UpdateUserAsync(user);
         }
 
+        public async Task<User?> GetUserByExternalIdentityAsync(string issuer, string providerUserId)
+        {
+            if (string.IsNullOrWhiteSpace(issuer) || string.IsNullOrWhiteSpace(providerUserId))
+            {
+                return null;
+            }
+
+            var collection = _identityAccessManagementRepository.GetCollection<User>();
+            // Exact comparison on both: an issuer is a case-sensitive URL and a subject is opaque (OIDC Core 2).
+            var filter = Builders<User>.Filter.ElemMatch(
+                x => x.ExternalIdentities,
+                ei => ei.Issuer == issuer && ei.ProviderUserId == providerUserId);
+
+            var scope = await _dataAccess.ReadAsync(IamSchemas.User, filter, "UserRepository.GetUserByExternalIdentityAsync", useProjection: false);
+            if (!scope.Granted) return null;
+
+            // Two accounts carrying one identity would be a data error; take none rather than guess.
+            var matches = await collection.Find(scope.Filter).Limit(2).ToListAsync();
+            return matches.Count == 1 ? matches[0] : null;
+        }
+
+        public async Task<bool> AddExternalIdentityAsync(string userId, ExternalIdentity identity)
+        {
+            ArgumentNullException.ThrowIfNull(identity);
+            if (string.IsNullOrWhiteSpace(userId)
+                || string.IsNullOrWhiteSpace(identity.Issuer)
+                || string.IsNullOrWhiteSpace(identity.ProviderUserId))
+            {
+                return false;
+            }
+
+            var collection = _identityAccessManagementRepository.GetCollection<User>();
+            var builder = Builders<User>.Filter;
+            // The "not already linked" clause makes the push idempotent when two sign-ins race.
+            var filter = builder.Eq(x => x.ItemId, userId)
+                & builder.Type(x => x.ExternalIdentities, BsonType.Array)
+                & builder.Not(builder.ElemMatch(
+                    x => x.ExternalIdentities,
+                    ei => ei.Issuer == identity.Issuer && ei.ProviderUserId == identity.ProviderUserId));
+            var update = Builders<User>.Update
+                .Push(x => x.ExternalIdentities, identity)
+                .Set(x => x.LastUpdatedDate, DateTime.UtcNow);
+
+            var result = await _dataAccess.UpdateOneAsync(collection, IamSchemas.User, filter, update, "UserRepository.AddExternalIdentityAsync");
+            if (result is { ModifiedCount: > 0 })
+            {
+                return true;
+            }
+
+            // Older documents may hold null or no list at all, which $push refuses: start the list instead.
+            var noListFilter = builder.Eq(x => x.ItemId, userId)
+                & builder.Not(builder.Type(x => x.ExternalIdentities, BsonType.Array));
+            var startList = Builders<User>.Update
+                .Set(x => x.ExternalIdentities, new List<ExternalIdentity> { identity })
+                .Set(x => x.LastUpdatedDate, DateTime.UtcNow);
+
+            result = await _dataAccess.UpdateOneAsync(collection, IamSchemas.User, noListFilter, startList, "UserRepository.AddExternalIdentityAsync");
+            return result is { ModifiedCount: > 0 };
+        }
+
         public async Task<bool> RecordSuccessfulLoginAsync(string userId, string deviceInformationJson, DateTime nowUtc)
         {
             // No NormalizeUserIdentity here: this writes three counter/telemetry fields by id and

@@ -33,7 +33,14 @@ namespace Authentication.DomainService.Shared.Services
         /// No account existed, auto-join applies, and its target organization is deleted or disabled. Nothing was
         /// written.
         /// </summary>
-        OrganizationUnavailable = 4
+        OrganizationUnavailable = 4,
+
+        /// <summary>
+        /// An account with this email exists, but the external identity is not linked to it and the identity provider
+        /// does not trust its emails for linking (<see cref="IdentityProviderEmailTrust"/>). Nothing was written and no
+        /// user is returned: the account is neither signed in nor duplicated.
+        /// </summary>
+        IdentityNotLinked = 5
     }
 
     public sealed class SsoProvisioningResult
@@ -51,7 +58,13 @@ namespace Authentication.DomainService.Shared.Services
         /// Resolves the Blocks user behind an external identity, creating one when the tenant
         /// allows SSO signup. Shared by both social callbacks so the two cannot drift apart.
         /// </summary>
-        Task<SsoProvisioningResult> ResolveOrProvisionAsync(IExternalUserData externalUser, string provider);
+        /// <param name="externalUser">What the provider returned.</param>
+        /// <param name="provider">The provider name the flow started with.</param>
+        /// <param name="identityProvider">
+        /// The configured provider the sign-in came through. It supplies the issuer the external identity is keyed
+        /// by and the <c>TrustEmail</c> flag. Null (not found) behaves like a provider whose flag was never set.
+        /// </param>
+        Task<SsoProvisioningResult> ResolveOrProvisionAsync(IExternalUserData externalUser, string provider, IdentityProvider? identityProvider);
     }
 
     public sealed class SsoUserProvisioningService : ISsoUserProvisioningService
@@ -85,7 +98,10 @@ namespace Authentication.DomainService.Shared.Services
             _signupOrganizationResolver = signupOrganizationResolver;
         }
 
-        public async Task<SsoProvisioningResult> ResolveOrProvisionAsync(IExternalUserData externalUser, string provider)
+        public async Task<SsoProvisioningResult> ResolveOrProvisionAsync(
+            IExternalUserData externalUser,
+            string provider,
+            IdentityProvider? identityProvider)
         {
             try
             {
@@ -96,12 +112,54 @@ namespace Authentication.DomainService.Shared.Services
                     return SsoProvisioningResult.From(SsoProvisioningOutcome.Failed);
                 }
 
+                // Linking rule (I06-WP1). 1: the external identity (issuer + subject) decides first.
+                var issuer = ResolveIssuer(identityProvider, provider);
+                var subject = externalUser.ExternalProviderUserId?.Trim();
+                var hasSubject = !string.IsNullOrEmpty(subject);
+
+                if (hasSubject)
+                {
+                    var linkedUser = await _userRepository.GetUserByExternalIdentityAsync(issuer, subject!);
+                    if (linkedUser != null)
+                    {
+                        return SsoProvisioningResult.From(SsoProvisioningOutcome.ExistingUser, linkedUser);
+                    }
+                }
+
+                // 2: the email may find an existing account only when the provider trusts its emails.
+                var trustEmail = IdentityProviderEmailTrust.IsEmailTrusted(identityProvider);
+
                 var existingUser = await _userRepository.GetUserByEmailAsync(normalizedEmail);
                 if (existingUser != null)
                 {
+                    if (!trustEmail)
+                    {
+                        _logger.LogWarning(
+                            "Sign-in from {Provider} refused: an account with this email exists, the external identity is not linked to it, and the provider does not trust emails for linking",
+                            provider);
+                        return SsoProvisioningResult.From(SsoProvisioningOutcome.IdentityNotLinked);
+                    }
+
+                    // 3: link the identity, so the next sign-in is found by it. Best effort: the email match has
+                    // already decided this sign-in, exactly as it did before linking existed.
+                    if (hasSubject)
+                    {
+                        await TryLinkExternalIdentityAsync(existingUser, provider, issuer, subject!);
+                    }
+
                     // Existing members keep the organizations they already belong to --
                     // this is a login, not a signup.
                     return SsoProvisioningResult.From(SsoProvisioningOutcome.ExistingUser, existingUser);
+                }
+
+                // A provider that does not trust emails can only ever find this account again by its identity.
+                // Without a subject the account could never sign in a second time, so it is not created.
+                if (!trustEmail && !hasSubject)
+                {
+                    _logger.LogError(
+                        "Provider {Provider} returned no user id and does not trust emails for linking; refusing to provision",
+                        provider);
+                    return SsoProvisioningResult.From(SsoProvisioningOutcome.Failed);
                 }
 
                 var tenantConfig = await _resourceRepository.GetTenantConfigurationAsync();
@@ -140,11 +198,29 @@ namespace Authentication.DomainService.Shared.Services
                     normalizedEmail,
                     externalUser,
                     provider,
-                    organizationId);
+                    organizationId,
+                    hasSubject ? NewExternalIdentity(provider, issuer, subject!) : null);
 
                 if (createdUser.user == null)
                 {
                     return SsoProvisioningResult.From(SsoProvisioningOutcome.Failed);
+                }
+
+                // The email appeared while provisioning: the same rule as the lookup above applies to it.
+                if (!createdUser.wasCreated)
+                {
+                    if (!trustEmail)
+                    {
+                        _logger.LogWarning(
+                            "Sign-in from {Provider} refused: an account with this email appeared while provisioning and the provider does not trust emails for linking",
+                            provider);
+                        return SsoProvisioningResult.From(SsoProvisioningOutcome.IdentityNotLinked);
+                    }
+
+                    if (hasSubject)
+                    {
+                        await TryLinkExternalIdentityAsync(createdUser.user, provider, issuer, subject!);
+                    }
                 }
 
                 if (createdUser.wasCreated)
@@ -227,7 +303,8 @@ namespace Authentication.DomainService.Shared.Services
             string normalizedEmail,
             IExternalUserData externalUser,
             string provider,
-            string? organizationId)
+            string? organizationId,
+            ExternalIdentity? externalIdentity)
         {
             var raced = await _userRepository.GetUserByEmailAsync(normalizedEmail);
             if (raced != null)
@@ -285,6 +362,11 @@ namespace Authentication.DomainService.Shared.Services
                         { "ExternalProviderUserId", externalUser.ExternalProviderUserId }
                     }
                     : new Dictionary<string, object>(),
+
+                // Linked from the start, so the next sign-in is found by the identity, not the email.
+                ExternalIdentities = externalIdentity == null
+                    ? new List<ExternalIdentity>()
+                    : new List<ExternalIdentity> { externalIdentity },
 
                 CreatedDate = DateTime.UtcNow,
                 LastUpdatedDate = DateTime.UtcNow
@@ -359,6 +441,46 @@ namespace Authentication.DomainService.Shared.Services
         private static string GenerateOrgSuffix()
         {
             return RandomNumberGenerator.GetString(OrgSuffixAlphabet, OrgSuffixLength);
+        }
+
+        /// <summary>
+        /// The issuer an external identity is keyed by: the configured provider's issuer, or the provider name when it
+        /// has none (social providers). The same fallback the social account-link path already stores.
+        /// </summary>
+        private static string ResolveIssuer(IdentityProvider? identityProvider, string provider)
+        {
+            return !string.IsNullOrWhiteSpace(identityProvider?.Issuer)
+                ? identityProvider!.Issuer!.Trim()
+                : (provider ?? string.Empty).Trim();
+        }
+
+        private static ExternalIdentity NewExternalIdentity(string provider, string issuer, string subject) => new()
+        {
+            Provider = provider,
+            ProviderUserId = subject,
+            Issuer = issuer,
+            LinkedAtUtc = DateTime.UtcNow
+        };
+
+        private async Task TryLinkExternalIdentityAsync(User user, string provider, string issuer, string subject)
+        {
+            try
+            {
+                var identity = NewExternalIdentity(provider, issuer, subject);
+                if (await _userRepository.AddExternalIdentityAsync(user.ItemId, identity))
+                {
+                    _logger.LogInformation(
+                        "Linked an external identity from {Provider} to user {UserId} after an email match",
+                        provider,
+                        user.ItemId);
+                }
+            }
+            catch (Exception ex)
+            {
+                // The sign-in has already been decided by the email match; a failed link only means the next
+                // sign-in matches by email again.
+                _logger.LogWarning(ex, "Could not link the external identity from {Provider} to user {UserId}", provider, user.ItemId);
+            }
         }
 
         private static string NormalizeEmail(string? email)

@@ -1333,6 +1333,10 @@ namespace Authentication.DomainService.Services
                 LastUpdatedDate = now,
             };
 
+            // Not given: the repository stamps false, the default for a new provider (I06-WP1).
+            if (request.TrustEmail.HasValue)
+                IdentityProviderEmailTrust.Set(provider, request.TrustEmail.Value);
+
             // Supplied secrets go to Blocks Secrets before the insert; the document keeps references only.
             string? clientSecretReference;
             string? privateKeyReference;
@@ -1718,6 +1722,8 @@ namespace Authentication.DomainService.Services
             if (request.TeamId != null) existing.TeamId = request.TeamId;
             if (request.KeyId != null) existing.KeyId = request.KeyId;
             if (request.AppleAudience != null) existing.AppleAudience = request.AppleAudience;
+            // Null leaves the flag as stored, including "never set" on a provider saved before it existed.
+            if (request.TrustEmail.HasValue) IdentityProviderEmailTrust.Set(existing, request.TrustEmail.Value);
             KeepBuiltInSocialEndpoints(existing);
 
             var blocksContext = BlocksContext.GetContext();

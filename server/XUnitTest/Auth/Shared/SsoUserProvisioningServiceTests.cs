@@ -75,6 +75,12 @@ namespace XUnitTest.Auth.Shared
                 });
         }
 
+        /// <summary>
+        /// The tests above the linking-rule section predate the TrustEmail flag: they describe a provider whose
+        /// flag was never set, which keeps today's email match.
+        /// </summary>
+        private static readonly IdentityProvider? LegacyProvider = null;
+
         private User? _createdUser;
 
         private void NoExistingUser()
@@ -97,7 +103,7 @@ namespace XUnitTest.Auth.Shared
             var existing = new User { ItemId = "u1", Email = "new@example.com", Active = true };
             _userRepository.Setup(r => r.GetUserByEmailAsync("new@example.com")).ReturnsAsync(existing);
 
-            var result = await Create().ResolveOrProvisionAsync(ExternalUser(), "google");
+            var result = await Create().ResolveOrProvisionAsync(ExternalUser(), "google", LegacyProvider);
 
             result.Outcome.Should().Be(SsoProvisioningOutcome.ExistingUser);
             result.User.Should().BeSameAs(existing);
@@ -113,7 +119,7 @@ namespace XUnitTest.Auth.Shared
             _userRepository.Setup(r => r.GetUserByEmailAsync(It.IsAny<string>())).ReturnsAsync((User?)null);
             TenantConfig(ssoSignup: false);
 
-            var result = await Create().ResolveOrProvisionAsync(ExternalUser(), "google");
+            var result = await Create().ResolveOrProvisionAsync(ExternalUser(), "google", LegacyProvider);
 
             result.Outcome.Should().Be(SsoProvisioningOutcome.SignupDisabled);
             result.User.Should().BeNull();
@@ -126,7 +132,7 @@ namespace XUnitTest.Auth.Shared
             NoExistingUser();
             TenantConfig(ssoSignup: true, multiOrg: false);
 
-            var result = await Create().ResolveOrProvisionAsync(ExternalUser(), "google");
+            var result = await Create().ResolveOrProvisionAsync(ExternalUser(), "google", LegacyProvider);
 
             result.Outcome.Should().Be(SsoProvisioningOutcome.Provisioned);
 
@@ -145,7 +151,7 @@ namespace XUnitTest.Auth.Shared
             NoExistingUser();
             TenantConfig(ssoSignup: true, multiOrg: true, orgFromSignup: false);
 
-            var result = await Create().ResolveOrProvisionAsync(ExternalUser(), "google");
+            var result = await Create().ResolveOrProvisionAsync(ExternalUser(), "google", LegacyProvider);
 
             result.Outcome.Should().Be(SsoProvisioningOutcome.Provisioned);
 
@@ -168,7 +174,7 @@ namespace XUnitTest.Auth.Shared
                 .Setup(r => r.CreateOrganizationAsync(It.IsAny<CreateOrganizationRequest>(), It.IsAny<string>()))
                 .ReturnsAsync(new BaseMutationResponse { IsSuccess = true, ItemId = "org-77" });
 
-            var result = await Create().ResolveOrProvisionAsync(ExternalUser(), "google");
+            var result = await Create().ResolveOrProvisionAsync(ExternalUser(), "google", LegacyProvider);
 
             result.Outcome.Should().Be(SsoProvisioningOutcome.Provisioned);
 
@@ -201,7 +207,7 @@ namespace XUnitTest.Auth.Shared
                 .Setup(r => r.CreateOrganizationAsync(It.IsAny<CreateOrganizationRequest>(), It.IsAny<string>()))
                 .ReturnsAsync(new BaseMutationResponse { IsSuccess = true, ItemId = "org-78" });
 
-            await Create().ResolveOrProvisionAsync(ExternalUser(), "google");
+            await Create().ResolveOrProvisionAsync(ExternalUser(), "google", LegacyProvider);
 
             _resourceMutation.Verify(
                 r => r.CreateOrganizationAsync(
@@ -224,7 +230,7 @@ namespace XUnitTest.Auth.Shared
                 .Setup(r => r.CreateOrganizationAsync(It.IsAny<CreateOrganizationRequest>(), It.IsAny<string>()))
                 .ReturnsAsync(new BaseMutationResponse { IsSuccess = true, ItemId = "org-79" });
 
-            await Create().ResolveOrProvisionAsync(ExternalUser(), "google");
+            await Create().ResolveOrProvisionAsync(ExternalUser(), "google", LegacyProvider);
 
             _resourceMutation.Verify(
                 r => r.CreateOrganizationAsync(
@@ -244,7 +250,7 @@ namespace XUnitTest.Auth.Shared
                 .Setup(r => r.CreateOrganizationAsync(It.IsAny<CreateOrganizationRequest>(), It.IsAny<string>()))
                 .ReturnsAsync(new BaseMutationResponse { IsSuccess = false });
 
-            var result = await Create().ResolveOrProvisionAsync(ExternalUser(), "google");
+            var result = await Create().ResolveOrProvisionAsync(ExternalUser(), "google", LegacyProvider);
 
             result.Outcome.Should().Be(SsoProvisioningOutcome.Provisioned);
             CapturedUser().OrganizationIds.Should().BeEmpty();
@@ -261,7 +267,7 @@ namespace XUnitTest.Auth.Shared
                 .ReturnsAsync(raced);
             TenantConfig(ssoSignup: true, multiOrg: false);
 
-            var result = await Create().ResolveOrProvisionAsync(ExternalUser(), "google");
+            var result = await Create().ResolveOrProvisionAsync(ExternalUser(), "google", LegacyProvider);
 
             result.Outcome.Should().Be(SsoProvisioningOutcome.ExistingUser);
             result.User.Should().BeSameAs(raced);
@@ -276,7 +282,7 @@ namespace XUnitTest.Auth.Shared
 
             await Create().ResolveOrProvisionAsync(
                 ExternalUser(roles: new List<string> { "idp-admin" }, permissions: new List<string> { "idp-write" }),
-                "google");
+                "google", LegacyProvider);
 
             var created = CapturedUser();
             created.Roles[DefaultOrganizationId].Should().Equal("idp-admin");
@@ -293,7 +299,7 @@ namespace XUnitTest.Auth.Shared
 
             await Create().ResolveOrProvisionAsync(
                 ExternalUser(roles: new List<string>(), permissions: new List<string>()),
-                "google");
+                "google", LegacyProvider);
 
             var created = CapturedUser();
             created.Roles[DefaultOrganizationId].Should().BeEmpty();
@@ -303,7 +309,7 @@ namespace XUnitTest.Auth.Shared
         [Fact]
         public async Task ProviderWithoutEmail_Fails()
         {
-            var result = await Create().ResolveOrProvisionAsync(new BYOSsoUserData { Email = "" }, "google");
+            var result = await Create().ResolveOrProvisionAsync(new BYOSsoUserData { Email = "" }, "google", LegacyProvider);
 
             result.Outcome.Should().Be(SsoProvisioningOutcome.Failed);
             _userRepository.Verify(r => r.GetUserByEmailAsync(It.IsAny<string>()), Times.Never);
@@ -316,7 +322,7 @@ namespace XUnitTest.Auth.Shared
             _userRepository.Setup(r => r.CreateUserAsync(It.IsAny<User>())).ReturnsAsync(false);
             TenantConfig(ssoSignup: true, multiOrg: false);
 
-            var result = await Create().ResolveOrProvisionAsync(ExternalUser(), "google");
+            var result = await Create().ResolveOrProvisionAsync(ExternalUser(), "google", LegacyProvider);
 
             result.Outcome.Should().Be(SsoProvisioningOutcome.Failed);
             result.User.Should().BeNull();
@@ -328,7 +334,7 @@ namespace XUnitTest.Auth.Shared
             NoExistingUser();
             TenantConfig(ssoSignup: true, multiOrg: false);
 
-            await Create().ResolveOrProvisionAsync(ExternalUser("New@Example.com"), "google");
+            await Create().ResolveOrProvisionAsync(ExternalUser("New@Example.com"), "google", LegacyProvider);
 
             var created = CapturedUser();
             created.Email.Should().Be("new@example.com");
@@ -352,7 +358,7 @@ namespace XUnitTest.Auth.Shared
             _resourceRepository.Setup(r => r.GetOrganizationById("org-sales"))
                 .ReturnsAsync(new Organization { ItemId = "org-sales", Name = "Sales" });
 
-            var result = await Create().ResolveOrProvisionAsync(ExternalUser(), "google");
+            var result = await Create().ResolveOrProvisionAsync(ExternalUser(), "google", LegacyProvider);
 
             result.Outcome.Should().Be(SsoProvisioningOutcome.Provisioned);
             var created = CapturedUser();
@@ -372,7 +378,7 @@ namespace XUnitTest.Auth.Shared
             NoExistingUser();
             TenantConfig(ssoSignup: true, multiOrg: true, orgFromSignup: true, autoJoin: true, autoJoinTarget: DefaultOrganizationId);
 
-            var result = await Create().ResolveOrProvisionAsync(ExternalUser(), "google");
+            var result = await Create().ResolveOrProvisionAsync(ExternalUser(), "google", LegacyProvider);
 
             result.Outcome.Should().Be(SsoProvisioningOutcome.Provisioned);
             CapturedUser().OrganizationIds.Should().Equal(DefaultOrganizationId);
@@ -392,7 +398,7 @@ namespace XUnitTest.Auth.Shared
             _resourceRepository.Setup(r => r.GetOrganizationById("org-sales"))
                 .ReturnsAsync(exists ? new Organization { ItemId = "org-sales", Name = "Sales", IsDisabled = true } : null!);
 
-            var result = await Create().ResolveOrProvisionAsync(ExternalUser(), "google");
+            var result = await Create().ResolveOrProvisionAsync(ExternalUser(), "google", LegacyProvider);
 
             result.Outcome.Should().Be(SsoProvisioningOutcome.OrganizationUnavailable);
             result.User.Should().BeNull();
@@ -418,7 +424,7 @@ namespace XUnitTest.Auth.Shared
             _userRepository.Setup(r => r.GetUserByEmailAsync(It.IsAny<string>())).ReturnsAsync((User)null!);
             TenantConfig(ssoSignup: false, multiOrg: true, autoJoin: true, autoJoinTarget: "org-sales");
 
-            var result = await Create().ResolveOrProvisionAsync(ExternalUser(), "google");
+            var result = await Create().ResolveOrProvisionAsync(ExternalUser(), "google", LegacyProvider);
 
             result.Outcome.Should().Be(SsoProvisioningOutcome.SignupDisabled);
             _resourceRepository.Verify(r => r.GetOrganizationById(It.IsAny<string>()), Times.Never);
@@ -438,7 +444,7 @@ namespace XUnitTest.Auth.Shared
             _userRepository.Setup(r => r.GetUserByEmailAsync("new@example.com")).ReturnsAsync(existing);
             TenantConfig(ssoSignup: true, multiOrg: true, autoJoin: true, autoJoinTarget: "org-sales");
 
-            var result = await Create().ResolveOrProvisionAsync(ExternalUser(), "google");
+            var result = await Create().ResolveOrProvisionAsync(ExternalUser(), "google", LegacyProvider);
 
             result.Outcome.Should().Be(SsoProvisioningOutcome.ExistingUser);
             existing.OrganizationIds.Should().Equal("org-other");
@@ -453,10 +459,159 @@ namespace XUnitTest.Auth.Shared
             NoExistingUser();
             TenantConfig(ssoSignup: true, multiOrg: false, autoJoin: true, autoJoinTarget: "org-sales");
 
-            await Create().ResolveOrProvisionAsync(ExternalUser(), "google");
+            await Create().ResolveOrProvisionAsync(ExternalUser(), "google", LegacyProvider);
 
             CapturedUser().OrganizationIds.Should().Equal(DefaultOrganizationId);
             _resourceRepository.Verify(r => r.GetOrganizationById(It.IsAny<string>()), Times.Never);
+        }
+
+        // ---------- Linking rule (I06-WP1) ----------
+
+        private const string Issuer = "https://idp.example.test";
+
+        private static IdentityProvider Provider(bool? trustEmail)
+        {
+            var provider = new IdentityProvider
+            {
+                ItemId = "idp-1",
+                Provider = "byo",
+                ProviderType = "enterprise",
+                ClientId = "client-1",
+                ClientSecret = string.Empty,
+                TokenEndpointAuthMethod = "client_secret_post",
+                Issuer = Issuer
+            };
+            if (trustEmail.HasValue)
+            {
+                IdentityProviderEmailTrust.Set(provider, trustEmail.Value);
+            }
+            return provider;
+        }
+
+        [Fact]
+        public async Task I06_KnownExternalIdentity_SignsInTheLinkedUser_WithoutAnEmailLookup()
+        {
+            // Linked under another email: the identity decides, not the email, and even an untrusting provider signs in.
+            var linked = new User { ItemId = "u-linked", Email = "old@example.com", Active = true };
+            _userRepository.Setup(r => r.GetUserByExternalIdentityAsync(Issuer, "ext-1")).ReturnsAsync(linked);
+
+            var result = await Create().ResolveOrProvisionAsync(ExternalUser(), "byo", Provider(trustEmail: false));
+
+            result.Outcome.Should().Be(SsoProvisioningOutcome.ExistingUser);
+            result.User.Should().BeSameAs(linked);
+            _userRepository.Verify(r => r.GetUserByEmailAsync(It.IsAny<string>()), Times.Never);
+            _userRepository.Verify(r => r.AddExternalIdentityAsync(It.IsAny<string>(), It.IsAny<ExternalIdentity>()), Times.Never);
+            _userRepository.Verify(r => r.CreateUserAsync(It.IsAny<User>()), Times.Never);
+        }
+
+        [Fact]
+        public async Task I06_UnknownIdentity_TrustedEmail_SignsInByEmail_AndLinksTheIdentity()
+        {
+            var existing = new User { ItemId = "u1", Email = "new@example.com", Active = true };
+            _userRepository.Setup(r => r.GetUserByExternalIdentityAsync(It.IsAny<string>(), It.IsAny<string>())).ReturnsAsync((User?)null);
+            _userRepository.Setup(r => r.GetUserByEmailAsync("new@example.com")).ReturnsAsync(existing);
+            ExternalIdentity? linkedIdentity = null;
+            _userRepository.Setup(r => r.AddExternalIdentityAsync("u1", It.IsAny<ExternalIdentity>()))
+                .Callback<string, ExternalIdentity>((_, identity) => linkedIdentity = identity)
+                .ReturnsAsync(true);
+
+            var result = await Create().ResolveOrProvisionAsync(ExternalUser(), "byo", Provider(trustEmail: true));
+
+            result.Outcome.Should().Be(SsoProvisioningOutcome.ExistingUser);
+            result.User.Should().BeSameAs(existing);
+            linkedIdentity.Should().NotBeNull();
+            linkedIdentity!.Issuer.Should().Be(Issuer);
+            linkedIdentity.ProviderUserId.Should().Be("ext-1");
+            linkedIdentity.Provider.Should().Be("byo");
+            _userRepository.Verify(r => r.CreateUserAsync(It.IsAny<User>()), Times.Never);
+        }
+
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public async Task I06_UnknownIdentity_UntrustedEmail_DoesNotMatch_AndProvisionsOnlyWhenSignupIsOn(bool ssoSignup)
+        {
+            var provider = Provider(trustEmail: false);
+            _userRepository.Setup(r => r.GetUserByExternalIdentityAsync(It.IsAny<string>(), It.IsAny<string>())).ReturnsAsync((User?)null);
+
+            // An account with this email exists: never matched, never duplicated, whatever the sign-up switch says.
+            var existing = new User { ItemId = "u1", Email = "new@example.com", Active = true };
+            _userRepository.Setup(r => r.GetUserByEmailAsync("new@example.com")).ReturnsAsync(existing);
+            TenantConfig(ssoSignup: ssoSignup, multiOrg: false);
+
+            var refused = await Create().ResolveOrProvisionAsync(ExternalUser(), "byo", provider);
+
+            refused.Outcome.Should().Be(SsoProvisioningOutcome.IdentityNotLinked);
+            refused.User.Should().BeNull();
+            _userRepository.Verify(r => r.AddExternalIdentityAsync(It.IsAny<string>(), It.IsAny<ExternalIdentity>()), Times.Never);
+            _userRepository.Verify(r => r.CreateUserAsync(It.IsAny<User>()), Times.Never);
+
+            // No account with this email: provisioning follows the tenant's sign-up switch, linked from the start.
+            NoExistingUser();
+
+            var fresh = await Create().ResolveOrProvisionAsync(ExternalUser(), "byo", provider);
+
+            if (ssoSignup)
+            {
+                fresh.Outcome.Should().Be(SsoProvisioningOutcome.Provisioned);
+                CapturedUser().ExternalIdentities.Should().ContainSingle(
+                    e => e.Issuer == Issuer && e.ProviderUserId == "ext-1" && e.Provider == "byo");
+            }
+            else
+            {
+                fresh.Outcome.Should().Be(SsoProvisioningOutcome.SignupDisabled);
+                fresh.User.Should().BeNull();
+                _userRepository.Verify(r => r.CreateUserAsync(It.IsAny<User>()), Times.Never);
+            }
+        }
+
+        [Fact]
+        public async Task I06_ProviderWithFlagNeverSet_KeepsTodaysEmailMatch()
+        {
+            var existing = new User { ItemId = "u1", Email = "new@example.com", Active = true };
+            _userRepository.Setup(r => r.GetUserByEmailAsync("new@example.com")).ReturnsAsync(existing);
+
+            var result = await Create().ResolveOrProvisionAsync(ExternalUser(), "byo", Provider(trustEmail: null));
+
+            result.Outcome.Should().Be(SsoProvisioningOutcome.ExistingUser);
+            result.User.Should().BeSameAs(existing);
+        }
+
+        [Fact]
+        public async Task I06_UntrustedEmail_RaceOnCreate_ReturnsNoUser()
+        {
+            var raced = new User { ItemId = "u-raced", Email = "new@example.com", Active = true };
+            // First lookup: nobody. The re-check just before the insert: an account appeared.
+            _userRepository.SetupSequence(r => r.GetUserByEmailAsync("new@example.com"))
+                .ReturnsAsync((User?)null)
+                .ReturnsAsync(raced);
+            TenantConfig(ssoSignup: true, multiOrg: false);
+
+            var result = await Create().ResolveOrProvisionAsync(ExternalUser(), "byo", Provider(trustEmail: false));
+
+            result.Outcome.Should().Be(SsoProvisioningOutcome.IdentityNotLinked);
+            result.User.Should().BeNull();
+            _userRepository.Verify(r => r.CreateUserAsync(It.IsAny<User>()), Times.Never);
+        }
+
+        [Fact]
+        public void I06_TrustEmailFlag_NewProvidersDefaultToFalse_ExistingOnesKeepTheEmailMatch()
+        {
+            var legacy = Provider(trustEmail: null);
+            IdentityProviderEmailTrust.Read(legacy).Should().BeNull();
+            IdentityProviderEmailTrust.IsEmailTrusted(legacy).Should().BeTrue();
+            IdentityProviderEmailTrust.IsEmailTrusted(null).Should().BeTrue();
+
+            var created = Provider(trustEmail: null);
+            IdentityProviderEmailTrust.StampNewProviderDefault(created);
+            IdentityProviderEmailTrust.Read(created).Should().BeFalse();
+
+            var explicitlyTrusted = Provider(trustEmail: true);
+            IdentityProviderEmailTrust.StampNewProviderDefault(explicitlyTrusted);
+            IdentityProviderEmailTrust.Read(explicitlyTrusted).Should().BeTrue();
+
+            IdentityProviderEmailTrust.Set(explicitlyTrusted, false);
+            explicitlyTrusted.Tags.Should().ContainSingle().Which.Should().Be(IdentityProviderEmailTrust.UntrustedTag);
         }
     }
 }
